@@ -1,6 +1,8 @@
 package netconf
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"net"
 
@@ -48,9 +50,23 @@ type session struct {
 
 	// delimiter to be used depending on NETCONF version
 	delimiter []byte
+
+	// channel to send subscriptions over
+	subscriptions chan []byte
+
+	// boolean value to check whether notifications are subscribed to
+	isSubscribed bool
 }
 
-func (s *session) Write(b []byte) {
+func (s *session) SubscribeNotifications() <-chan []byte {
+	if !s.isSubscribed {
+		s.isSubscribed = true
+		s.subscriptions = make(chan []byte)
+	}
+	return s.subscriptions
+}
+
+func (s *session) Rpc(b []byte) {
 	s.writeChan <- b
 }
 
@@ -77,8 +93,9 @@ func (s *session) handleConn() error {
 		s.delimiter = []byte(delimiter_1_0)
 	}
 
-	go s.handleInputs()
+	go s.handleInput()
 	go s.drainErrors()
+	go s.handleOutput()
 	return nil
 }
 
@@ -91,14 +108,24 @@ func (s *session) handleOutput() error {
 		if err != nil {
 			return err
 		}
+
+		// If it is a notification send it on the notification channel
+		if bytes.Contains(data, []byte(tag_notification)) {
+			if s.isSubscribed {
+				s.subscriptions <- s.sanitize(data)
+			}
+		} else if bytes.Contains(data, []byte(tag_rpc_error)) || bytes.Contains(data, []byte(tag_rpc_reply)) {
+
+		}
 	}
+
 }
 
 // Listens on the write channel and executes them on the
 // endpoint.
-func (s *session) handleInputs() error {
+func (s *session) handleInput() error {
 	for rpc := range s.writeChan {
-		if _, err := s.writer.Write(rpc); err != nil {
+		if err := s.write(rpc); err != nil {
 			return err
 		}
 	}
@@ -200,6 +227,42 @@ func (s *session) ackCapabilities() error {
 	return nil
 }
 
+// Writes the given rpc to the endpoint
+func (s *session) write(b []byte) error {
+	_, err := s.writer.Write(s.wrap(b))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// removes the suffixes and responses from the various delimiters
+func (s *session) sanitize(b []byte) []byte {
+	switch s.config.Version {
+	case Netconf_Version_1_0_1_1:
+		fallthrough
+	case Netconf_Version_1_1:
+		// TODO Add code to remove suffix
+	}
+	return bytes.TrimSuffix(b, s.delimiter)
+}
+
+// Wraps the given rpc with the appropriate delimiters
+func (s *session) wrap(b []byte) []byte {
+	switch s.config.Version {
+	case Netconf_Version_1_0_1_1:
+		fallthrough
+	case Netconf_Version_1_1:
+		b = append([]byte(fmt.Sprintf(suffix1_1, len(b))), b...)
+		b = append(b, s.delimiter...)
+	case Netconf_Version_1_0:
+		b = append(b, s.delimiter...)
+	}
+	return b
+}
+
+// Reads from the given reader till the delimiter is reached
+// and returns the response
 func (s *session) read(reader io.Reader, delimiter []byte) ([]byte, error) {
 	var d []byte
 	var err error

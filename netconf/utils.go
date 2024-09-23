@@ -16,6 +16,11 @@ const (
 
 	delimiter_1_0 = "]]>]]>"
 	delimiter_1_1 = "\n##\n"
+	suffix1_1     = "#%d\n"
+
+	tag_notification = "<notification"
+	tag_rpc_error    = "<rpc-error"
+	tag_rpc_reply    = "<rpc-reply"
 
 	capabilities_1_0_1_1 = `<?xml version="1.0" encoding="UTF-8"?>
 <hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
@@ -24,6 +29,7 @@ const (
 <capability>urn:ietf:params:netconf:base:1.1</capability>
 </capabilities>
 </hello>
+]]>]]>
 `
 )
 
