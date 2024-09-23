@@ -12,6 +12,10 @@ type Client interface {
 	// The client can be created by calling the NewClient() method.
 	// Answers any call homes on the port provided on given port.
 	Start() error
+	// Returns a channel over which call-homed NETCONF sessions
+	// are returned. This channel must be consumed from to prevent
+	// new routines from being spawned.
+	Sessions() <-chan Session
 	// Closes the NETCONF client and all the sessions associated with it
 	Close()
 }
@@ -48,6 +52,9 @@ type Config struct {
 	// versions supported are 1.0, 1.1 and both
 	// Defaults to to both if unspecified
 	Version Version
+	// Return session channel size
+	// Defaults to 10 if unspecified
+	ReturnSessionChannelSize int
 }
 
 // NETCONF Client that accepts call-home
@@ -56,9 +63,12 @@ type client struct {
 	config *Config
 	// map of internal sessions to various endpoints
 	m map[*session]bool
+	// channel on which the client returns the sessions to various
+	// endpoints
+	ch chan Session
 }
 
-func NewClient(c *Config) (*client, error) {
+func NewClient(c *Config) (Client, error) {
 	if c.Port == 0 {
 		return nil, errors.New("invalid port no")
 	}
@@ -76,9 +86,13 @@ func NewClient(c *Config) (*client, error) {
 	if c.WriteChannelSize == 0 {
 		c.WriteChannelSize = defaultWriteChannelSize
 	}
+	if c.ReturnSessionChannelSize == 0 {
+		c.ReturnSessionChannelSize = defaultReturnSessionChannelSize
+	}
 	return &client{
 		config: c,
 		m:      make(map[*session]bool),
+		ch:     make(chan Session, c.ReturnSessionChannelSize),
 	}, nil
 }
 
@@ -100,10 +114,25 @@ func (c *client) Start() error {
 			config:    c.config,
 			conn:      conn,
 			writeChan: make(chan []byte, c.config.WriteChannelSize),
+			idmap:     make(map[int]chan []byte),
 		}
 		c.m[s] = true
+
+		if len(c.ch) < c.config.ReturnSessionChannelSize {
+			c.ch <- s
+		} else {
+			go func() {
+				c.ch <- s
+			}()
+		}
+
 		go s.handleConn()
 	}
+}
+
+// Returns a channel over which created sessions are received
+func (c *client) Sessions() <-chan Session {
+	return c.ch
 }
 
 // Closes the client and all the underlying NETCONF sessions

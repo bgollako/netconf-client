@@ -10,9 +10,10 @@ const (
 	ackOk  = "<ack>ok</ack>"
 	ackErr = "<ack>error</ack>"
 
-	defaultHelloSize        = 4096
-	defaultSwitchDelay      = 2 * time.Second
-	defaultWriteChannelSize = 10
+	defaultHelloSize                = 4096
+	defaultSwitchDelay              = 2 * time.Second
+	defaultWriteChannelSize         = 10
+	defaultReturnSessionChannelSize = 10
 
 	delimiter_1_0 = "]]>]]>"
 	delimiter_1_1 = "\n##\n"

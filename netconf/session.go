@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -18,7 +19,7 @@ type Session interface {
 	// This function will not send the rpc to subscribe to notifications.
 	// The RPC to subscribe to notifications must be sent using ExecuteRpc prior
 	// to calling SubscribeNotifications.
-	SubscribeNotifications() (chan<- []byte, error)
+	SubscribeNotifications() <-chan []byte
 	// Closes the NETCONF client and closes the underlying connection to the endpoint.
 	Close()
 }
@@ -56,6 +57,12 @@ type session struct {
 
 	// boolean value to check whether notifications are subscribed to
 	isSubscribed bool
+
+	// mutex to control access to below map
+	m sync.Mutex
+
+	// map to internal channels for given messages
+	idmap map[int]chan []byte
 }
 
 func (s *session) SubscribeNotifications() <-chan []byte {
@@ -66,10 +73,34 @@ func (s *session) SubscribeNotifications() <-chan []byte {
 	return s.subscriptions
 }
 
-func (s *session) Rpc(b []byte) {
+func (s *session) ExecuteRpc(b []byte) ([]byte, error) {
+	// TODO Extract id from msg
+	id := 0
+	s.m.Lock()
+	s.idmap[id] = make(chan []byte)
+	s.m.Unlock()
 	s.writeChan <- b
+	d := <-s.idmap[id]
+	s.m.Lock()
+	delete(s.idmap, id)
+	s.m.Unlock()
+	return d, nil
 }
 
+// Closes the session
+func (s *session) Close() {
+	if s.writer != nil {
+		s.writer.Close()
+	}
+	if s.sshSession != nil {
+		s.sshSession.Close()
+	}
+	if s.sshClient != nil {
+		s.sshClient.Close()
+	}
+}
+
+// handles the incoming connections and answers the call home
 func (s *session) handleConn() error {
 	var err error
 	if err = s.answerHello(); err != nil {
@@ -84,14 +115,7 @@ func (s *session) handleConn() error {
 		return err
 	}
 
-	switch s.config.Version {
-	case Netconf_Version_1_0_1_1:
-		fallthrough
-	case Netconf_Version_1_1:
-		s.delimiter = []byte(delimiter_1_1)
-	default:
-		s.delimiter = []byte(delimiter_1_0)
-	}
+	s.setupDelimiters()
 
 	go s.handleInput()
 	go s.drainErrors()
@@ -270,15 +294,13 @@ func (s *session) read(reader io.Reader, delimiter []byte) ([]byte, error) {
 	return d, err
 }
 
-// Closes the session
-func (s *session) Close() {
-	if s.writer != nil {
-		s.writer.Close()
-	}
-	if s.sshSession != nil {
-		s.sshSession.Close()
-	}
-	if s.sshClient != nil {
-		s.sshClient.Close()
+func (s *session) setupDelimiters() {
+	switch s.config.Version {
+	case Netconf_Version_1_0_1_1:
+		fallthrough
+	case Netconf_Version_1_1:
+		s.delimiter = []byte(delimiter_1_1)
+	default:
+		s.delimiter = []byte(delimiter_1_0)
 	}
 }
