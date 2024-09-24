@@ -68,6 +68,11 @@ type session struct {
 
 	// map to internal channels for given messages
 	idmap map[int]chan []byte
+
+	// version of NETCONF to support
+	// versions supported are 1.0, 1.1 and both
+	// Defaults to to both if unspecified
+	version Version
 }
 
 func (s *session) SubscribeNotifications() <-chan []byte {
@@ -125,8 +130,6 @@ func (s *session) handleConn() error {
 	if err = s.ackCapabilities(); err != nil {
 		return err
 	}
-
-	s.setupDelimiters()
 
 	go s.handleInput()
 	go s.drainErrors()
@@ -257,8 +260,21 @@ func (s *session) ackCapabilities() error {
 		return err
 	}
 
-	// TODO: Acknowledge according to the given capabilities list
-	_, err = s.writer.Write([]byte(capabilities_1_0_1_1))
+	var resp []byte
+	if bytes.Contains(s.capabilities, []byte(netconf_1_1_capability)) {
+		s.delimiter = []byte(delimiter_1_1)
+		s.version = Netconf_Version_1_1
+		resp = []byte(capabilities_1_1)
+		if bytes.Contains(s.capabilities, []byte(netconf_1_0_capability)) {
+			resp = []byte(capabilities_1_0_1_1)
+			s.version = Netconf_Version_1_0_1_1
+		}
+	} else {
+		s.delimiter = []byte(delimiter_1_0)
+		resp = []byte(capabilities_1_0)
+		s.version = Netconf_Version_1_0
+	}
+	_, err = s.writer.Write(resp)
 	if err != nil {
 		return err
 	}
@@ -276,7 +292,7 @@ func (s *session) write(b []byte) error {
 
 // removes the suffixes and responses from the various delimiters
 func (s *session) sanitize(b []byte) []byte {
-	switch s.config.Version {
+	switch s.version {
 	case Netconf_Version_1_0_1_1:
 		fallthrough
 	case Netconf_Version_1_1:
@@ -287,7 +303,7 @@ func (s *session) sanitize(b []byte) []byte {
 
 // Wraps the given rpc with the appropriate delimiters
 func (s *session) wrap(b []byte) []byte {
-	switch s.config.Version {
+	switch s.version {
 	case Netconf_Version_1_0_1_1:
 		fallthrough
 	case Netconf_Version_1_1:
@@ -308,6 +324,7 @@ func (s *session) read(reader io.Reader, delimiter []byte) ([]byte, error) {
 	return d, err
 }
 
+// Extracts the message id from the message
 func (s *session) msgId(msg []byte) (int, error) {
 	match := re.FindStringSubmatch(string(msg))
 	if len(match) > 1 {
@@ -318,16 +335,4 @@ func (s *session) msgId(msg []byte) (int, error) {
 		return id, nil
 	}
 	return 0, errors.New("msg id not found")
-}
-
-// Sets up the delimiters depending on the NETCONF version being used
-func (s *session) setupDelimiters() {
-	switch s.config.Version {
-	case Netconf_Version_1_0_1_1:
-		fallthrough
-	case Netconf_Version_1_1:
-		s.delimiter = []byte(delimiter_1_1)
-	default:
-		s.delimiter = []byte(delimiter_1_0)
-	}
 }

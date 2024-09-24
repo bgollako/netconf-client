@@ -48,10 +48,6 @@ type Config struct {
 	// channel size to recieve rpcs to execute
 	// default size is 10
 	WriteChannelSize int
-	// version of NETCONF to support
-	// versions supported are 1.0, 1.1 and both
-	// Defaults to to both if unspecified
-	Version Version
 	// Size of channel that houses created sessions
 	// as they are returned to the caller.
 	// Defaults to 10 if unspecified
