@@ -2,13 +2,18 @@ package netconf
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"regexp"
+	"strconv"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
 )
+
+var re = regexp.MustCompile(`message-id="([0-9]+)"`)
 
 type Session interface {
 	// Executes the given rpc on the given endpoint and returns the response
@@ -74,9 +79,15 @@ func (s *session) SubscribeNotifications() <-chan []byte {
 }
 
 func (s *session) ExecuteRpc(b []byte) ([]byte, error) {
-	// TODO Extract id from msg
-	id := 0
+	id, err := s.msgId(b)
+	if err != nil {
+		return nil, err
+	}
 	s.m.Lock()
+	if _, ok := s.idmap[id]; ok {
+		s.m.Unlock()
+		return nil, fmt.Errorf("rpc with id %d already present", id)
+	}
 	s.idmap[id] = make(chan []byte)
 	s.m.Unlock()
 	s.writeChan <- b
@@ -139,7 +150,10 @@ func (s *session) handleOutput() error {
 				s.subscriptions <- s.sanitize(data)
 			}
 		} else if bytes.Contains(data, []byte(tag_rpc_error)) || bytes.Contains(data, []byte(tag_rpc_reply)) {
-
+			id, err := s.msgId(data)
+			if err == nil {
+				s.idmap[id] <- s.sanitize(data)
+			}
 		}
 	}
 
@@ -294,6 +308,19 @@ func (s *session) read(reader io.Reader, delimiter []byte) ([]byte, error) {
 	return d, err
 }
 
+func (s *session) msgId(msg []byte) (int, error) {
+	match := re.FindStringSubmatch(string(msg))
+	if len(match) > 1 {
+		id, err := strconv.Atoi(match[1])
+		if err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+	return 0, errors.New("msg id not found")
+}
+
+// Sets up the delimiters depending on the NETCONF version being used
 func (s *session) setupDelimiters() {
 	switch s.config.Version {
 	case Netconf_Version_1_0_1_1:
