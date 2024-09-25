@@ -2,17 +2,23 @@ package netconf
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"regexp"
+	"strconv"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
 )
 
+var re = regexp.MustCompile(`message-id="([0-9]+)"`)
+
 type Session interface {
 	// Executes the given rpc on the given endpoint and returns the response
 	// ExecuteRPC is thread-safe i.e. multiple routines can call it simultaneously
+	// It is the responsibility of the calling function to ensure the uniqueness of message ids
 	ExecuteRpc(rpc []byte) ([]byte, error)
 	// Returns a channel on which NETCONF notifications from the endpoint are returned.
 	// The notifications will be sent in the same order that they are received.
@@ -23,6 +29,17 @@ type Session interface {
 	// Closes the NETCONF client and closes the underlying connection to the endpoint.
 	Close()
 }
+
+type Version int
+
+const (
+	// NETCONF version 1.0 && 1.1
+	Netconf_Version_1_0_1_1 = iota
+	// NETCONF version 1.1
+	Netconf_Version_1_1
+	// NETCONF version 1.0
+	Netconf_Version_1_0
+)
 
 // Encapsulates a NETCONF Session to an endpoint
 // Created by the NETCONF Client for every new call home it receieves
@@ -63,6 +80,11 @@ type session struct {
 
 	// map to internal channels for given messages
 	idmap map[int]chan []byte
+
+	// version of NETCONF to support
+	// versions supported are 1.0, 1.1 and both
+	// Defaults to to both if unspecified
+	version Version
 }
 
 func (s *session) SubscribeNotifications() <-chan []byte {
@@ -74,9 +96,15 @@ func (s *session) SubscribeNotifications() <-chan []byte {
 }
 
 func (s *session) ExecuteRpc(b []byte) ([]byte, error) {
-	// TODO Extract id from msg
-	id := 0
+	id, err := s.msgId(b)
+	if err != nil {
+		return nil, err
+	}
 	s.m.Lock()
+	if _, ok := s.idmap[id]; ok {
+		s.m.Unlock()
+		return nil, fmt.Errorf("rpc with id %d already present", id)
+	}
 	s.idmap[id] = make(chan []byte)
 	s.m.Unlock()
 	s.writeChan <- b
@@ -115,8 +143,6 @@ func (s *session) handleConn() error {
 		return err
 	}
 
-	s.setupDelimiters()
-
 	go s.handleInput()
 	go s.drainErrors()
 	go s.handleOutput()
@@ -139,7 +165,10 @@ func (s *session) handleOutput() error {
 				s.subscriptions <- s.sanitize(data)
 			}
 		} else if bytes.Contains(data, []byte(tag_rpc_error)) || bytes.Contains(data, []byte(tag_rpc_reply)) {
-
+			id, err := s.msgId(data)
+			if err == nil {
+				s.idmap[id] <- s.sanitize(data)
+			}
 		}
 	}
 
@@ -243,8 +272,21 @@ func (s *session) ackCapabilities() error {
 		return err
 	}
 
-	// TODO: Acknowledge according to the given capabilities list
-	_, err = s.writer.Write([]byte(capabilities_1_0_1_1))
+	var resp []byte
+	if bytes.Contains(s.capabilities, []byte(netconf_1_1_capability)) {
+		s.delimiter = []byte(delimiter_1_1)
+		s.version = Netconf_Version_1_1
+		resp = []byte(capabilities_1_1)
+		if bytes.Contains(s.capabilities, []byte(netconf_1_0_capability)) {
+			resp = []byte(capabilities_1_0_1_1)
+			s.version = Netconf_Version_1_0_1_1
+		}
+	} else {
+		s.delimiter = []byte(delimiter_1_0)
+		resp = []byte(capabilities_1_0)
+		s.version = Netconf_Version_1_0
+	}
+	_, err = s.writer.Write(resp)
 	if err != nil {
 		return err
 	}
@@ -262,7 +304,7 @@ func (s *session) write(b []byte) error {
 
 // removes the suffixes and responses from the various delimiters
 func (s *session) sanitize(b []byte) []byte {
-	switch s.config.Version {
+	switch s.version {
 	case Netconf_Version_1_0_1_1:
 		fallthrough
 	case Netconf_Version_1_1:
@@ -273,7 +315,7 @@ func (s *session) sanitize(b []byte) []byte {
 
 // Wraps the given rpc with the appropriate delimiters
 func (s *session) wrap(b []byte) []byte {
-	switch s.config.Version {
+	switch s.version {
 	case Netconf_Version_1_0_1_1:
 		fallthrough
 	case Netconf_Version_1_1:
@@ -294,13 +336,15 @@ func (s *session) read(reader io.Reader, delimiter []byte) ([]byte, error) {
 	return d, err
 }
 
-func (s *session) setupDelimiters() {
-	switch s.config.Version {
-	case Netconf_Version_1_0_1_1:
-		fallthrough
-	case Netconf_Version_1_1:
-		s.delimiter = []byte(delimiter_1_1)
-	default:
-		s.delimiter = []byte(delimiter_1_0)
+// Extracts the message id from the message
+func (s *session) msgId(msg []byte) (int, error) {
+	match := re.FindStringSubmatch(string(msg))
+	if len(match) > 1 {
+		id, err := strconv.Atoi(match[1])
+		if err != nil {
+			return 0, err
+		}
+		return id, nil
 	}
+	return 0, errors.New("msg id not found")
 }

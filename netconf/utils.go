@@ -32,6 +32,26 @@ const (
 </hello>
 ]]>]]>
 `
+	capabilities_1_0 = `<?xml version="1.0" encoding="UTF-8"?>
+<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+<capabilities>
+<capability>urn:ietf:params:netconf:base:1.0</capability>
+</capabilities>
+</hello>
+]]>]]>
+`
+
+	capabilities_1_1 = `<?xml version="1.0" encoding="UTF-8"?>
+<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+<capabilities>
+<capability>urn:ietf:params:netconf:base:1.1</capability>
+</capabilities>
+</hello>
+]]>]]>
+`
+
+	netconf_1_0_capability = `<capability>urn:ietf:params:netconf:base:1.0</capability>`
+	netconf_1_1_capability = `<capability>urn:ietf:params:netconf:base:1.1</capability>`
 )
 
 // Reads till the delimiter has been encountered.

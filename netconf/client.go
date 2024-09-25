@@ -16,20 +16,9 @@ type Client interface {
 	// are returned. This channel must be consumed from to prevent
 	// new routines from being spawned.
 	Sessions() <-chan Session
-	// Closes the NETCONF client and all the sessions associated with it
+	// Closes the NETCONF client and all the sessions associated with it.
 	Close()
 }
-
-type Version int
-
-const (
-	// NETCONF version 1.0 && 1.1
-	Netconf_Version_1_0_1_1 = iota
-	// NETCONF version 1.1
-	Netconf_Version_1_1
-	// NETCONF version 1.0
-	Netconf_Version_1_0
-)
 
 type Config struct {
 	// The size of the hello message size that is coming from the NETCONF server
@@ -48,11 +37,8 @@ type Config struct {
 	// channel size to recieve rpcs to execute
 	// default size is 10
 	WriteChannelSize int
-	// version of NETCONF to support
-	// versions supported are 1.0, 1.1 and both
-	// Defaults to to both if unspecified
-	Version Version
-	// Return session channel size
+	// Size of channel that houses created sessions
+	// as they are returned to the caller.
 	// Defaults to 10 if unspecified
 	ReturnSessionChannelSize int
 }
