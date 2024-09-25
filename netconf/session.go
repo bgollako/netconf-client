@@ -18,6 +18,7 @@ var re = regexp.MustCompile(`message-id="([0-9]+)"`)
 type Session interface {
 	// Executes the given rpc on the given endpoint and returns the response
 	// ExecuteRPC is thread-safe i.e. multiple routines can call it simultaneously
+	// It is the responsibility of the calling function to ensure the uniqueness of message ids
 	ExecuteRpc(rpc []byte) ([]byte, error)
 	// Returns a channel on which NETCONF notifications from the endpoint are returned.
 	// The notifications will be sent in the same order that they are received.
@@ -28,6 +29,17 @@ type Session interface {
 	// Closes the NETCONF client and closes the underlying connection to the endpoint.
 	Close()
 }
+
+type Version int
+
+const (
+	// NETCONF version 1.0 && 1.1
+	Netconf_Version_1_0_1_1 = iota
+	// NETCONF version 1.1
+	Netconf_Version_1_1
+	// NETCONF version 1.0
+	Netconf_Version_1_0
+)
 
 // Encapsulates a NETCONF Session to an endpoint
 // Created by the NETCONF Client for every new call home it receieves

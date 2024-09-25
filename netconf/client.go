@@ -12,24 +12,13 @@ type Client interface {
 	// The client can be created by calling the NewClient() method.
 	// Answers any call homes on the port provided on given port.
 	Start() error
-	// Returns a channel over which call-homed NETCONF sessions.
+	// Returns a channel over which call-homed NETCONF sessions
 	// are returned. This channel must be consumed from to prevent
 	// new routines from being spawned.
 	Sessions() <-chan Session
 	// Closes the NETCONF client and all the sessions associated with it.
 	Close()
 }
-
-type Version int
-
-const (
-	// NETCONF version 1.0 && 1.1
-	Netconf_Version_1_0_1_1 = iota
-	// NETCONF version 1.1
-	Netconf_Version_1_1
-	// NETCONF version 1.0
-	Netconf_Version_1_0
-)
 
 type Config struct {
 	// The size of the hello message size that is coming from the NETCONF server
