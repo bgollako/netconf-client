@@ -25,6 +25,8 @@ type Session interface {
 	// This function will not send the rpc to subscribe to notifications.
 	// The RPC to subscribe to notifications must be sent using ExecuteRpc prior
 	// to calling SubscribeNotifications.
+	// If this function is called, the channel returned must be emptied, else
+	// the routine consuming the output from the endpoint will be blocked.
 	SubscribeNotifications() <-chan []byte
 	// Closes the NETCONF client and closes the underlying connection to the endpoint.
 	Close()
